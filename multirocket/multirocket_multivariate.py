@@ -620,6 +620,7 @@ class MultiRocket:
         return (yhat, probs) if output_probs else yhat
 
 
+
 class MultiRocketRegression:
 
     def __init__(
@@ -637,9 +638,9 @@ class MultiRocketRegression:
         self.num_kernels = int(self.num_features / self.n_features_per_kernel)
 
         if verbose > 1:
-            print('[{}] Creating {} with {} kernels'.format(self.name, self.name, self.num_kernels))
+            print(f"Number of kernels: {self.num_kernels}")
 
-        self.regressor = 0
+        self.regressor = Regression(num_features=self.num_kernels)
         self.train_duration = 0
         self.test_duration = 0
         self.generate_kernel_duration = 0
@@ -652,14 +653,10 @@ class MultiRocketRegression:
 
     def fit(self, x_train, y_train, predict_on_train=True):
         if self.verbose > 1:
-            print('[{}] Training with training set of {}'.format(self.name, x_train.shape))
+            print("Fitting MultiRocket...")
+
         if x_train.shape[2] < 10:
-            # handling very short series (like PensDigit from the MTSC archive)
-            # series have to be at least a length of 10 (including differencing)
-            _x_train = np.zeros((x_train.shape[0], x_train.shape[1], 10), dtype=x_train.dtype)
-            _x_train[:, :, :x_train.shape[2]] = x_train
-            x_train = _x_train
-            del _x_train
+            raise ValueError("Input length must be at least 10.")
 
         self.generate_kernel_duration = 0
         self.apply_kernel_on_train_duration = 0
@@ -694,40 +691,25 @@ class MultiRocketRegression:
 
         elapsed_time = time.perf_counter() - start_time
         if self.verbose > 1:
-            print('[{}] Kernels applied!, took {}s'.format(self.name, elapsed_time))
-            print('[{}] Transformed Shape {}'.format(self.name, x_train_transform.shape))
+            print(f"Kernel generation and transformation took {elapsed_time:.2f} seconds.")
 
-        if self.verbose > 1:
-            print('[{}] Training'.format(self.name))
-
-        self.regressor = Regression(
-            num_features=x_train_transform.shape[1],
-            max_epochs=200,
-        )
         _start_time = time.perf_counter()
         self.regressor.fit(x_train_transform, y_train)
         self.train_duration = time.perf_counter() - _start_time
 
         if self.verbose > 1:
-            print('[{}] Training done!, took {:.3f}s'.format(self.name, self.train_duration))
+            print(f"Training duration: {self.train_duration:.2f} seconds.")
+
         if predict_on_train:
             yhat = self.regressor.predict(x_train_transform)
-        else:
-            yhat = None
-        return yhat
+            return yhat
 
     def predict(self, x):
         if self.verbose > 1:
-            print('[{}] Predicting'.format(self.name))
-
-        self.apply_kernel_on_test_duration = 0
-        self.test_transforms_duration = 0
+            print("Predicting with MultiRocket...")
 
         _start_time = time.perf_counter()
         xx = np.diff(x, 1)
-        self.test_transforms_duration += time.perf_counter() - _start_time
-
-        _start_time = time.perf_counter()
         x_transform = transform(
             x, xx,
             self.base_parameters, self.diff1_parameters,
@@ -736,16 +718,12 @@ class MultiRocketRegression:
         self.apply_kernel_on_test_duration += time.perf_counter() - _start_time
 
         x_transform = np.nan_to_num(x_transform)
-        if self.verbose > 1:
-            print('Kernels applied!, took {:.3f}s. Transformed shape: {}.'.format(
-                self.apply_kernel_on_test_duration,
-                x_transform.shape
-                )
-            )
 
-        start_time = time.perf_counter()
+        _start_time = time.perf_counter()
         yhat = self.regressor.predict(x_transform)
-        self.test_duration = time.perf_counter() - start_time
+        self.test_duration = time.perf_counter() - _start_time
+
         if self.verbose > 1:
-            print("[{}] Predicting completed, took {:.3f}s".format(self.name, self.test_duration))
+            print(f"Prediction duration: {self.test_duration:.2f} seconds.")
+
         return yhat
